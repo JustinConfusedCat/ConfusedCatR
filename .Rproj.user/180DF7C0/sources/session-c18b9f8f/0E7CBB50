@@ -1,0 +1,27 @@
+{
+    "id": "0E7CBB50",
+    "path": "~/ConfusedCatR/Hello world.R",
+    "project_path": "Hello world.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": true,
+    "created": 1773169636524.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source2",
+        "cursorPosition": "1,0",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1773170560,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1773171444289,
+    "read_only": false,
+    "read_only_alternatives": []
+}

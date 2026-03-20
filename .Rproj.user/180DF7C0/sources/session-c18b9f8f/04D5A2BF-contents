@@ -1,0 +1,215 @@
+---
+title: "VTPEH 6105 - Homework 08"
+author: "Justin Liu"
+date: "`r Sys.Date()`"
+editor_options:
+  chunk_output_type: console
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+```
+
+# Instructions
+
+This homework must be submitted on Canvas as a **R markdown-generated PDF** file (from the .Rmd template available on the Assignment page), **together with the source code** (the .rmd file). Submissions in any other format will be considered late until the requested format has been submitted; failure to submit the requested format within 10 days will lead to a 0 to the assignment.
+
+Questions should be answered with **literate, meaningful answers** when relevant. Read all the questions before answering to ensure a good flow of your answers (e.g., no redundancy).
+
+#	Peer review 
+
+## Introduction
+
+*This part of the homework will focus on the article authored by Niki Marjerrison et al. 2022, Comparison of cancer incidence and mortality in the Norwegian Fire departments  cohort, 1960-2018* Occupational & Environmental Medicine *79(11) :736-742. https://pubmed.ncbi.nlm.nih.gov/35589382/. Read the full article before answering the questions.*
+
+## Guiding questions
+
+### What study population is being investigated?
+
+The study investigates male employees of Norwegian fire departments:
+
+4,295 men from 15 fire departments across Norway
+
+Follow-up period: 1960–2018 (58 years)
+ 
+### What are the main data sources used in this study?**
+
+The study used three main registry data sources:
+
+Cancer Registry of Norway (CRN) — provided cancer diagnosis dates and sites (mandatory reporting since 1952, high completeness)
+
+Cause of Death Registry — provided underlying cause and date of death, based on death certificates
+
+National Population Register — provided emigration dates
+
+### What reference (standard) population is used for calculating the standardized ratios?**
+
+The general Norwegian male population was used as the reference, with national rates applied to calculate both SIRs and SMRs.
+
+### What standardization method is used? How can you tell?
+
+The study uses indirect standardization. 
+
+This can be inferred because the authors calculated SIRs and SMRs, which are the product of indirect standardization, dividing the observed number of cases or deaths in the cohort by the expected number derived from applying reference population rates to the cohort's own age and period distribution.
+
+### Is this method appropriate in this study? Justify (2-4 sentences)
+
+Yes, indirect standardization is appropriate here. The cohort is relatively small, meaning many cancer sites have few observed cases, which makes direct standardization unstable. Indirect standardization is preferred in occupational cohort studies precisely because it handles small numbers more reliably by borrowing the age-period structure from the larger reference population.
+
+### Complete the following table about the standardized incidence and mortality ratios (SIR and SMR) from the article results
+
+Cancer Site        SIR (95% CI)        SMR (95% CI)
+All sites combined 1.15 (1.08–1.23)    1.08 (0.98–1.20)
+Colon cancer       1.27 (1.01–1.58)    1.20 (0.84–1.67)
+Mesothelioma.      2.59 (1.12–5.11)    1.66 (0.34–4.86)
+Prostate cancer.   1.18 (1.03–1.34)    1.01 (0.76–1.31)
+		
+### Which cancer site shows statistically significantly elevated SIRs?
+
+All sites combined (1.15, 95% CI 1.08–1.23)
+Colon cancer (1.27, 95% CI 1.01–1.58)
+Mesothelioma (2.59, 95% CI 1.12–5.11)
+Prostate cancer (1.18, 95% CI 1.03–1.34)
+ 
+### Interpret the SIR (general case)
+
+SIR = 1 means:
+the observed number of cancer cases equals the expected number — no difference in risk compared to the general population.
+
+SIR > 1 means:
+more cases observed than expected — the cohort has a higher cancer incidence than the general population.
+
+SIR < 1 means:
+fewer cases observed than expected — the cohort has a lower cancer incidence than the general population.
+
+# Data analysis 
+
+## Introduction
+
+You are working as an epidemiologist assigned to investigate mortality patterns in two populations (Population A and Population B). At first glance, the overall mortality rate differs substantially between the two populations. You are asked to determine whether this difference reflects a true difference in mortality or whether it may be explained by variations in the age distribution of the populations.
+You will use age-specific death counts and population totals for Population A and Population B along with standard population to calculate crude mortality rates, age-specific rates, age-adjusted rates, the Standardized Rate Ratio, and the Standardized Rate Difference.  
+The data set used in this section does not represent real-world surveillance data; it was created specifically for instructional purposes. 
+
+## Creating the data
+
+```{r}
+
+# create the data
+data <- data.frame(
+  age_group = c("<15", "15-45", "45-65", "65+"),
+  deaths_A  = c(1028, 1629, 3839, 8358),
+  pop_A     = c(538480, 728363, 341956, 162094),
+  deaths_B  = c(236, 388, 436, 368),
+  pop_B     = c(103004, 149964, 40699, 6715),
+  std_pop   = c(58017845, 83270951, 41820193, 20101169)
+)
+```
+
+## Questions
+
+### Calculate and display standard weights
+
+```{r}
+
+# Calculate standard weights
+data$std_weight <- data$std_pop / sum(data$std_pop)
+
+# Display
+data[, c("age_group", "std_pop", "std_weight")]
+
+```
+
+### Calculate and display crude death rates per 1000 for Population A and Population B
+
+```{r}
+
+# Calculate crude death rates per 1,000
+data$cdr_A <- (sum(data$deaths_A) / sum(data$pop_A)) * 1000
+data$cdr_B <- (sum(data$deaths_B) / sum(data$pop_B)) * 1000
+
+# Display
+data[, c("age_group", "cdr_A", "cdr_B")]
+
+```
+
+### Calculate and display the age-specific death rates per 1000 for Population A and Population B
+
+```{r}
+
+# Calculate age-specific death rates per 1,000
+data$asdr_A <- (data$deaths_A / data$pop_A) * 1000
+data$asdr_B <- (data$deaths_B / data$pop_B) * 1000
+
+# Display
+data[, c("age_group", "asdr_A", "asdr_B")]
+
+```
+
+### Calculate and display the weighted age-specific death rates for Population A and Population B
+
+```{r}
+
+# Calculate weighted age-specific death rates
+data$weighted_asdr_A <- data$asdr_A * data$std_weight
+data$weighted_asdr_B <- data$asdr_B * data$std_weight
+
+# Display
+data[, c("age_group", "std_weight", "weighted_asdr_A", "weighted_asdr_B")]
+
+```
+
+### Calculate and display the age-adjusted death rates per 1000 for Population A and Population B
+
+```{r}
+
+# Calculate age-adjusted death rates per 1,000
+aadr_A <- sum(data$weighted_asdr_A)
+aadr_B <- sum(data$weighted_asdr_B)
+
+# Display
+cat("Age-adjusted death rate - Population A:", round(aadr_A, 4), "per 1,000\n")
+cat("Age-adjusted death rate - Population B:", round(aadr_B, 4), "per 1,000\n")
+
+```
+
+###  Calculate and display the Standardized Rate Ratio (SRR) and Standardized Rate Difference (SRD)
+
+```{r}
+
+# Calculate Standardized Rate Ratio and Standardized Rate Difference
+SRR <- aadr_A / aadr_B
+SRD <- aadr_A - aadr_B
+
+# Display
+cat("Standardized Rate Ratio (SRR):", round(SRR, 4), "\n")
+cat("Standardized Rate Difference (SRD):", round(SRD, 4), "per 1,000\n")
+
+```
+
+## Interpretation
+
+### Based on the above reported statistics, can the crude rates of population A and Population B be compared? Explain your response
+
+The crude rates should not be directly compared without accounting for age. Population A has a much higher crude rate (8.39 per 1,000) than Population B (4.75 per 1,000), which might suggest higher mortality. However, this difference is largely driven by differences in age distribution between the two populations rather than true differences in mortality risk.
+
+This is confirmed by the age-specific rates, which are actually very similar between the two populations within each age group, and by the age-adjusted rates (8.87 vs 9.34 per 1,000), which are nearly identical once age is accounted for. Population A likely has a larger proportion of older individuals, who have inherently higher mortality, inflating its crude rate. The SRR of 0.95 and SRD of -0.47 per 1,000 further confirm that after age adjustment, Population A actually has slightly lower mortality than Population B — the opposite conclusion from the crude comparison.
+
+### Interpret the SRR and the SRD*
+
+SRR = 0.95:
+After age adjustment, Population A's mortality rate is 5% lower than Population B's. Since the SRR is close to 1, the difference is minimal, suggesting no meaningful difference in mortality between the two populations once age is accounted for.
+
+SRD = -0.47 per 1,000:
+After age adjustment, Population A has 0.47 fewer deaths per 1,000 persons than Population B. This small absolute difference reinforces the conclusion that the two populations have very similar underlying mortality risks, and that the large difference in crude rates was driven by age structure rather than true mortality differences.
+
+# AI Use Disclosure Statement
+
+This document was prepared with assistance from ChatGPT. I used ChatGPT to help debug R code. All code was reviewed, tested, and modified by me to ensure it met the assignment requirements and worked correctly with the dataset.
