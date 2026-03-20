@@ -1,0 +1,222 @@
+---
+title: "Check Point #02 - Dataset Selection & R Markdown Report"
+author: "Justin Jialang Liu"
+date: "`r Sys.Date()`"
+editor_options:
+  chunk_output_type: console
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(readr)
+```
+
+# Introduction
+
+*Background*
+
+The Behavioral Risk Factor Surveillance System (BRFSS) is a CDC-supported collaboration with U.S. states and territories that collects standardized, state-specific data on health behaviors, chronic conditions, and access to care to inform public health programs and policy. Because it covers many topics tied to leading causes of death and disability, BRFSS is useful for quickly exploring how common key risk behaviors are and how they vary across demographic groups.
+
+*Project question*
+
+In the 2024 BRFSS adult sample, how do mental health status and days of poor mental health vary by income and education, and are these patterns explained or modified by smoking and physical activity?
+
+*Data set overview*
+
+This project uses the CDC BRFSS 2024 public-use data (LLCP) and documentation. BRFSS is a telephone survey (landline and cell phone) of non-institutionalized adults; the 2024 target population is adults aged 18+ living in a private residence or college housing with a working phone. Data were collected across participating areas during 2024. Analyses use the final raking-derived weight _LLCPWT.
+
+# Data Set Exploration
+
+*Set working directory and import data*
+```{r,results='hide'}
+
+library(haven)
+library(dplyr)
+
+mywd <- "/Users/justinl/Desktop/Acadamic/Cornell/25-26 Spring/6270 R/Data selection"
+setwd(mywd)
+
+brfss24 <- read_xpt("LLCP2024.XPT ")
+glimpse(brfss24)
+
+```
+
+*Convert the data into CSV*
+```{r,results='hide'}
+
+write_csv(brfss24, "LLCP2024.csv")
+
+```
+
+*Ensure your data set is in a tidy format*
+
+Overall, the BRFSS (LLCP) dataset is largely consistent with the principles of tidy data. Each row represents a single survey respondent (one observational unit), each column represents a single variable (e.g., age, sex, health behaviors), and each cell contains one value for that respondent–variable combination. 
+
+However,BRFSS uses special numeric codes for nonresponse which should be recoded to missing values to improve interpretability, even though this does not change the tidy structure.
+
+# Variable Overview
+
+```{r}
+
+library(tidyverse)
+library(knitr)
+
+# Subset to max 10 variables 
+# Key constructs:
+# mental health: MENTHLTH (days)
+# SES: INCOME3, EDUCA
+# behaviors: _RFSMOK3 (smoking), EXERANY2 (physical activity)
+# basic covariates + weight: SEXVAR, _AGE80, WEIGHT2
+
+df <- brfss24 %>%
+  transmute(
+    PoorMentalDays = as.numeric(MENTHLTH),
+    GeneralHealth  = factor(GENHLTH),
+    Income         = factor(INCOME3),
+    Education      = factor(EDUCA),
+    Smoking        = factor(`_RFSMOK3`),
+    PhysActivity   = factor(EXERANY2),
+    Sex            = factor(SEXVAR),
+    Age            = as.numeric(`_AGE80`),
+    Weight         = as.numeric(`WEIGHT2`)
+  )
+
+#Make the “variable / type / class” table
+var_table <- tibble(
+  Variable = names(df),
+  Type = case_when(
+    Variable == "PoorMentalDays" ~ "Discrete (0–30 days)",
+    Variable == "Age" ~ "Continuous/Discrete (numeric)",
+    Variable == "Weight" ~ "Continuous (numeric)",
+    TRUE ~ "Categorical"
+  ),
+  Class = sapply(df, function(x) paste(class(x), collapse = ", "))
+)
+
+#Print the table
+kable(
+  var_table,
+  caption = "Variables selected for the 2024 BRFSS analysis of mental health by income and education (with smoking and physical activity)."
+)
+
+```
+
+# Data Visualization
+
+*Histogram*
+
+1. Data cleaning for special code
+Based on the codebook, values 1–30 are the number of days, 88 means None (i.e., 0 days), and 77 (Don’t know/Not sure) and 99 (Refused) should be treated as missing (NA).
+```{r,results='hide'}
+
+library(dplyr)
+
+df <- df %>%
+  mutate(
+    PoorMentalDays = case_when(
+      PoorMentalDays %in% 1:30 ~ as.numeric(PoorMentalDays),
+      PoorMentalDays == 88     ~ 0,
+      PoorMentalDays %in% c(77, 99) ~ NA_real_,
+      TRUE ~ NA_real_
+    )
+  )
+
+```
+
+2. Generate plot
+```{r, results='hide'}
+
+library(ggplot2)
+library(scales)
+
+# Create plot
+
+m <- mean(df$PoorMentalDays, na.rm = TRUE)
+med <- median(df$PoorMentalDays, na.rm = TRUE)
+
+ggplot(df, aes(x = PoorMentalDays)) +
+  geom_histogram(
+    binwidth = 1, boundary = -0.5, closed = "left",
+    fill = "skyblue", color = "white"
+  ) +
+  geom_vline(aes(xintercept = m, linetype = "Mean"),
+             color = "red", linewidth = 1) +
+  geom_vline(aes(xintercept = med, linetype = "Median"),
+             color = "darkblue", linewidth = 1) +
+  scale_linetype_manual(values = c("Mean" = "dashed", "Median" = "solid"), name = "") +
+  scale_x_continuous(breaks = seq(0, 30, 5)) +
+  scale_y_continuous(breaks = pretty) +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Poor Mental Health Days (Past 30 Days)",
+    x = "Number of poor mental health days (0–30)",
+    y = "Number of respondents",
+    caption = "BRFSS 2024. Vertical lines indicate the mean and median."
+  )
+
+```
+
+*Scatterplot*
+
+1. Data cleaning
+Based on the codebook for WEIGHT2, values 50–776 represent self-reported body weight in pounds. The value 7777 (“Don’t know/Not sure”) and 9999 (“Refused”) do not provide valid weight information and were recoded as missing (NA). Values in the 9023–9352 range indicate responses reported in kilograms (the leading “9” flags metric units); these were converted to pounds by subtracting 9000 to obtain kilograms and then multiplying by 2.20462.
+```{r}
+
+library(dplyr)
+
+df <- df %>%
+  mutate(
+    Weight = as.numeric(Weight),
+    BodyWeight_lbs = case_when(
+      Weight >= 50  & Weight <= 776  ~ Weight,                       # pounds
+      Weight == 7777 | Weight == 9999 ~ NA_real_,                     # DK / Refused
+      Weight >= 9023 & Weight <= 9352 ~ (Weight - 9000) * 2.20462,   # kilograms -> pounds
+      TRUE ~ NA_real_
+    )
+  )
+
+summary(df$BodyWeight_lbs)
+
+```
+
+2. Generate plot
+```{r, results='hide'}
+
+library(dplyr)
+library(ggplot2)
+
+df_wt_age <- df %>%
+  filter(!is.na(Age), !is.na(BodyWeight_lbs))
+
+ggplot(df_wt_age, aes(x = Age, y = BodyWeight_lbs)) +
+  geom_point(
+    alpha = 0.08,
+    size = 1.2,
+    shape = 21,
+    fill = "#2A9D8F",
+    color = "white",
+    stroke = 0.2
+  ) +
+  theme_minimal() +
+  scale_x_continuous(breaks = pretty) +
+  scale_y_continuous(breaks = pretty) +
+  labs(
+    title = "Body Weight vs Age",
+    x = "Age (years)",
+    y = "Body weight (lbs)",
+    caption = "BRFSS 2024. WEIGHT2 cleaned."
+  )
+
+```
+
+# AI Use Disclosure Statement
+
+This document was prepared with assistance from ChatGPT. I used ChatGPT to help debug R code for data import, cleaning (recoding special BRFSS values), and creating ggplot2 visualizations. All code was reviewed, tested, and modified by me to ensure it met the assignment requirements and worked correctly with the dataset.

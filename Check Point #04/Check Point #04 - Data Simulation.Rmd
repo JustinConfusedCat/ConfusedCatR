@@ -1,0 +1,406 @@
+---
+title: "Check Point #04 - Data Simulation"
+author: "Justin Liu"
+date: "`r Sys.Date()`"
+editor_options:
+  chunk_output_type: inline
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+    latex_engine: xelatex
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(readr)
+
+```
+# Introduction
+This document is for instructions only. Please create your own R markdown document as a basis for the rest
+of the project. The document should respect the following criteria:
+• Is a PDF.
+• Include headers as relevant, and a table of content.
+• Include all R code.
+• Include all figures.
+• Console output may or may not be printed, as relevant.
+• Is understandable and pleasant to navigate (e.g., avoid printing full data set within the report) - Please
+note that formatting errors will be penalized
+Sections from previous reports can be re-used if relevant. Any section of the report can be revised as the
+project develops.
+The goal of this Check Point is to gain experience with data simulation in the context of power analyses.
+
+# Objective and Approach
+## Specific Objective
+Based on your data set, select one focused research question that examines the association between 2+
+variables A and B (e.g., “Does X influence Y?”, “Is Y associated with Z?”, “Does Y occur more frequently
+in group 1 than group 2?”). The rest of the report will focus on the simulation of plausible relationships
+and sampling scenarios between those variables. The ultimate goal (reached in the Final Report) is to use
+simulations to assess how statistical test performances, notably power (i.e., the ability to detect associations
+that exist) vary across biological and sampling scenarios.
+
+Report here your research question (50 words or less).
+
+In the 2024–25 student sample, is depressive symptom severity (PHQ-9 total score, deprawsc) associated with intentional weekly generative AI use frequency (AI_3) and do students in higher AI_3 use categories report higher deprawsc than those who never use AI?
+
+## Data Description
+```{r}
+
+# Loading Data
+library(haven)
+library(dplyr)
+library(tidyverse)
+library(psych)
+library(tibble)
+library(knitr)
+library(kableExtra)
+
+mywd <- "/Users/justinl/Desktop/Acadamic/Cornell/25-26 Spring/6270 R/Check Point #04"
+setwd(mywd)
+
+hms <- read.csv("HMS_2024-2025_PUBLIC_instchars.csv")
+
+# Data Description (no age)
+df_desc <- hms %>%
+  select(deprawsc, AI_3)
+
+desc_table <- tibble(
+  `Variable Name` = c("deprawsc", "AI_3"),
+  `Variable Type (dataset)` = c(
+    "Discrete numeric (PHQ-9 total score, 0-27)",
+    "Categorical ordinal (AI use frequency categories)"
+  ),
+  `Variable Class (R)` = c(
+    paste(class(df_desc$deprawsc), collapse = ", "),
+    paste(class(df_desc$AI_3), collapse = ", ")
+  )
+)
+
+desc_table %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    caption = "Data description for variables used in the AI use and depressive symptoms analysis."
+  ) %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+
+```
+
+## Data Visualization
+```{r}
+
+library(dplyr)
+library(ggplot2)
+
+df_plot <- hms %>%
+  select(deprawsc, AI_3) %>%
+  drop_na(deprawsc, AI_3) %>%
+  filter(!is.na(deprawsc), !is.na(AI_3), AI_3 %in% 1:6) %>%
+  mutate(
+    AI_3 = factor(
+      AI_3,
+      levels = 1:6,
+      labels = c("Almost constantly", "Several times/day", "About once/day",
+                 "Several times/week", "Less often", "Never"),
+      ordered = TRUE
+    )
+  )
+
+ggplot(df_plot, aes(x = AI_3, y = deprawsc)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.15, alpha = 0.15, size = 1) +
+  theme_minimal() +
+  labs(
+    title = "PHQ-9 Total Score by Generative AI Use Frequency",
+    x = "Intentional generative AI use (past week)",
+    y = "PHQ-9 total score (deprawsc, 0–27)",
+    caption = "Boxplots show median and IQR; points are individual observations."
+  ) +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+
+```
+
+Based on the plot, a clear monotonic linear trend is not obvious, but there are several plausible relationships between AI_3 use frequency and depressive symptom severity (deprawsc). Students who report using generative AI less often or never appear to have higher median PHQ-9 scores than those reporting more frequent use, suggesting a possible negative association between AI use frequency and deprawsc. At the same time, the “Almost constantly” group also shows a relatively high median and wide spread, which is consistent with a non-linear (U-shaped) relationship where depressive symptoms are higher at both extremes of use (very frequent use and never use) and lower at moderate levels. Overall, the distributions overlap substantially across groups, so any effect is likely modest relative to within-group variability, but both a weak negative trend and a threshold/non-linear pattern are plausible based on the visual evidence.
+
+## Parameters of Interest
+```{r results='asis'}
+
+library(tibble)
+library(knitr)
+library(kableExtra)
+
+param_table <- tibble(
+  Parameter = c("Intercept", "AI use effect (trend)", "Age adjustment effect", "Noise (residual SD)"),
+  Symbol = c("beta0", "betaAI", "betaAge", "sigma"),
+  Description = c(
+    "Expected PHQ-9 total score at baseline (units: PHQ-9 points).",
+    "Change in expected PHQ-9 score per one-level increase in AI use frequency category (units: points per level).",
+    "Change in expected PHQ-9 score per one-year increase in age (units: points per year).",
+    "Standard deviation of unexplained variation in PHQ-9 total score (units: PHQ-9 points)."
+  )
+)
+
+param_table %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    caption = "Parameters for the simulated relationship between AI use frequency (AI3), age, and depressive symptom severity (deprawsc)."
+  ) %>%
+  column_spec(3, width = "9cm") %>%   # 3rd column = Description
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+
+```
+
+# Simulation
+## Simulation Basis
+```{r}
+
+library(dplyr)
+library(tibble)
+library(knitr)
+library(kableExtra)
+
+set.seed(123)
+
+# --- Simulation settings ---
+n <- 1000
+beta0 <- 6
+betaAI <- 0.4
+betaAge <- 0.02
+sigma <- 4
+
+# --- Simulate predictors ---
+age <- round(rnorm(n, mean = 22, sd = 4), 0)
+age <- pmin(pmax(age, 18), 65)
+
+AI3 <- sample(1:6, n, replace = TRUE,
+              prob = c(0.05, 0.15, 0.20, 0.25, 0.20, 0.15))
+
+# --- Simulate outcome ---
+deprawsc_cont <- beta0 + betaAI * AI3 + betaAge * age + rnorm(n, 0, sigma)
+deprawsc <- round(pmin(pmax(deprawsc_cont, 0), 27), 0)
+
+# --- Create simulated dataset ---
+sim_dat <- data.frame(age = age, AI3 = AI3, deprawsc = deprawsc)
+
+# --- Three-line table: continuous variables ---
+cont_sum <- tibble(
+  Variable = c("age", "deprawsc"),
+  n = c(length(sim_dat$age), length(sim_dat$deprawsc)),
+  Mean = c(mean(sim_dat$age), mean(sim_dat$deprawsc)),
+  SD = c(sd(sim_dat$age), sd(sim_dat$deprawsc)),
+  Median = c(median(sim_dat$age), median(sim_dat$deprawsc)),
+  Q1 = c(quantile(sim_dat$age, 0.25), quantile(sim_dat$deprawsc, 0.25)),
+  Q3 = c(quantile(sim_dat$age, 0.75), quantile(sim_dat$deprawsc, 0.75))
+)
+
+cont_sum %>%
+  kable(format = "latex", booktabs = TRUE, digits = 2,
+        caption = "Summary statistics of simulated variables (age and deprawsc).") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+
+# --- Three-line table: AI3 distribution ---
+ai_sum <- sim_dat %>%
+  count(AI3) %>%
+  mutate(Percent = 100 * n / sum(n))
+
+ai_sum %>%
+  kable(format = "latex", booktabs = TRUE, digits = 1,
+        caption = "Distribution of simulated AI use frequency (days per week) categories (AI3).") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+
+```
+
+## Simulation Output
+```{r sim_strat_summary_table, results='asis'}
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# 1) Create stratified summary statistics (deprawsc by AI3)
+sim_summary <- sim_dat %>%
+  group_by(AI3) %>%
+  summarise(
+    n = n(),
+    median_dep = median(deprawsc),
+    q1_dep = quantile(deprawsc, 0.25),
+    q3_dep = quantile(deprawsc, 0.75),
+    IQR_dep = IQR(deprawsc),
+    mean_dep = mean(deprawsc),
+    sd_dep = sd(deprawsc),
+    .groups = "drop"
+  )
+
+# 2) Three-line table output
+sim_summary %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    digits = 2,
+    caption = "Stratified summary statistics of simulated PHQ-9 total score (deprawsc) by AI use frequency category (AI3)."
+  ) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"), full_width = FALSE)
+
+```
+
+## Simulation Function
+```{r}
+
+library(dplyr)
+
+simulate_ai_dep <- function(n, betaAI, sigma, beta0 = 6,
+                            ai_probs = c(0.05, 0.15, 0.20, 0.25, 0.20, 0.15),
+                            seed = NULL) {
+  # n: sample size
+  # betaAI: effect size (change in deprawsc per 1-level increase in AI3)
+  # sigma: noise (SD of residuals)
+
+  if (!is.null(seed)) set.seed(seed)
+
+  # Simulate AI use category (1-6)
+  AI3 <- sample(1:6, n, replace = TRUE, prob = ai_probs)
+
+  # Simulate PHQ-9 total score with noise
+  dep_cont <- beta0 + betaAI * AI3 + rnorm(n, mean = 0, sd = sigma)
+  deprawsc <- round(pmin(pmax(dep_cont, 0), 27), 0)
+
+  # Simulated dataset
+  sim_dat <- data.frame(AI3 = AI3, deprawsc = deprawsc)
+
+  # Stratified summary statistics (deprawsc by AI3)
+  sim_summary <- sim_dat %>%
+    group_by(AI3) %>%
+    summarise(
+      n = n(),
+      median_dep = median(deprawsc),
+      q1_dep = quantile(deprawsc, 0.25),
+      q3_dep = quantile(deprawsc, 0.75),
+      IQR_dep = IQR(deprawsc),
+      mean_dep = mean(deprawsc),
+      sd_dep = sd(deprawsc),
+      .groups = "drop"
+    )
+
+  list(sim_dat = sim_dat, sim_summary = sim_summary)
+}
+```
+
+## Simulation Automation
+```{r}
+
+library(dplyr)
+
+# --- 1) Actual sample size from your dataset (complete cases) ---
+n_actual <- hms %>%
+  select(deprawsc, AI_3) %>%
+  filter(!is.na(deprawsc), !is.na(AI_3), AI_3 %in% 1:6) %>%
+  nrow()
+
+n_actual
+
+# --- 2) Define parameter grids ---
+# 10 effect sizes (can be negative, zero, positive)
+effect_sizes <- seq(-0.8, 0.8, length.out = 10)
+
+# 3 noise levels
+noise_levels <- c(2, 4, 6)
+
+# 10 sample sizes, including one ~ same order of magnitude as n_actual
+sample_sizes <- unique(round(seq(100, n_actual, length.out = 10)))
+sample_sizes
+
+# --- 3) Run simulations and store outputs in a list ---
+sim_runs <- list()
+run_id <- 1
+
+for (bAI in effect_sizes) {
+  for (sig in noise_levels) {
+    for (n in sample_sizes) {
+
+      out <- simulate_ai_dep(
+        n = n,
+        betaAI = bAI,    # effect size
+        sigma = sig,     # noise
+        beta0 = 6,
+        seed = 1000 + run_id  # reproducible but different each run
+      )
+
+      sim_runs[[run_id]] <- list(
+        effect_size = bAI,
+        noise = sig,
+        sample_size = n,
+        sim_dat = out$sim_dat,
+        sim_summary = out$sim_summary
+      )
+
+      run_id <- run_id + 1
+    }
+  }
+}
+
+length(sim_runs)  # should be 10 * 3 * 10 = 300 runs (or more, if unique() changes counts)
+
+sim_index <- bind_rows(lapply(sim_runs, function(x) {
+  tibble(
+    effect_size = x$effect_size,
+    noise = x$noise,
+    sample_size = x$sample_size
+  )
+}))
+
+head(sim_index)
+
+```
+
+# Visualization
+```{r sim_heatmap}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+
+# 1) Extract one summary metric (Delta) from each simulation run
+sim_results <- map_dfr(sim_runs, function(x) {
+  ss <- x$sim_summary
+
+  med_ai1 <- ss %>% filter(AI3 == 1) %>% pull(median_dep)
+  med_ai6 <- ss %>% filter(AI3 == 6) %>% pull(median_dep)
+
+  tibble(
+    effect_size = x$effect_size,
+    noise = x$noise,
+    sample_size = x$sample_size,
+    delta_median = med_ai6 - med_ai1
+  )
+})
+
+# 2) Heatmap: x = sample size, y = effect size, fill = delta, facet by noise
+ggplot(sim_results, aes(x = factor(sample_size), y = effect_size, fill = delta_median)) +
+  geom_tile() +
+  facet_wrap(~ noise, nrow = 1) +
+  theme_minimal() +
+  labs(
+    title = "Simulation results: Median PHQ-9 difference (AI3=6 minus AI3=1)",
+    x = "Sample size (n)",
+    y = "Effect size (betaAI)",
+    fill = "Delta\n(median)",
+    caption = "Each tile summarizes one simulated dataset. Delta compares median deprawsc between AI3=6 (Never) and AI3=1 (Almost constantly). Panels show different noise levels."
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+# Interpretation
+
+The simulations show that the estimated association between AI use frequency and depressive symptoms, summarized as the median difference between AI3=6 (Never) and AI3=1 (Almost constantly), tracks the effect size you specify: when betaAI is positive, the heatmap is mostly positive, and when betaAI is negative, it becomes mostly negative. Increasing the noise level makes the pattern less sharp and introduces more variability in the median difference, while lower noise produces a cleaner gradient across effect sizes.
+
+Across panels, larger sample sizes make the results more stable: the tiles become less patchy and the median differences fluctuate less from run to run. With smaller n, especially under higher noise, random sampling variability can obscure the underlying effect and occasionally produce median differences with the “wrong” sign. Overall, these simulations illustrate how detectability and stability of the A–B relationship improve with larger samples and lower noise, while small effects can be difficult to distinguish from random variation when noise is high.
+
+# AI Use Disclosure Statement
+
+This document was prepared with assistance from ChatGPT. I used ChatGPT to help generate and debug R code for data cleaning, generating descriptive tables, and creating plot visualizations. All code was reviewed, tested, and modified by me to ensure it met the assignment requirements and worked correctly with the dataset.
