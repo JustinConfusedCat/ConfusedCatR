@@ -3,3 +3,4 @@
 .RData
 .Ruserdata
 HMS Data/Data/*.csv
+.DS_Store
