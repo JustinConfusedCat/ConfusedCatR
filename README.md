@@ -10,6 +10,8 @@ Due to the big file size, datasets are not included in this Github repository. A
 
 https://healthymindsnetwork.org/research/data-for-researchers/
 
+A subetted dataset HMS24_Small is included in data folder, use as example.
+
 
 ## Author(s) and affiliations
 **Justin Jialang Liu**  
