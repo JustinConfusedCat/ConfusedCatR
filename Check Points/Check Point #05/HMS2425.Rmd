@@ -1,0 +1,482 @@
+---
+title: "HMS2024-2025"
+author: "Justin Liu"
+date: "`r Sys.Date()`"
+editor_options:
+  chunk_output_type: inline
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+    latex_engine: xelatex
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(readr)
+
+```
+
+# Data Input
+
+```{r, results='hide'}
+
+mywd <- "/Users/justinl/Desktop/Acadamic/Intern/NYU/HMS/Data"
+setwd(mywd)
+
+HMS24 <- read.csv("HMS_2024-2025_PUBLIC_instchars.csv")
+
+```
+
+# Subsetting
+```{r}
+
+library(dplyr)
+library(tibble)
+library(knitr)
+library(tidyr)
+
+vars <- c("age", "AI_3", "flourish", "deprawsc", "anx_score")
+
+# 1) Subset: only require age and AI_3 to be valid (others can be NA)
+HMS24_sub <- HMS24 %>%
+  transmute(
+    age = as.numeric(age),
+    AI_3 = as.numeric(AI_3),
+    flourish = as.numeric(flourish),
+    deprawsc = as.numeric(deprawsc),
+    anx_score = as.numeric(anx_score)
+  ) %>%
+  filter(
+    !is.na(age),
+    !is.na(AI_3),
+    AI_3 %in% 1:6
+  ) %>%
+  mutate(
+    # Keep invalid ranges as NA (do not drop rows)
+    flourish = ifelse(flourish >= 8 & flourish <= 56, flourish, NA_real_),
+    deprawsc = ifelse(deprawsc >= 0 & deprawsc <= 27, deprawsc, NA_real_),
+    anx_score = ifelse(anx_score >= 0 & anx_score <= 21, anx_score, NA_real_)
+  )
+
+# 2) Missingness summary on the subset dataset
+missing_table <- tibble(
+  Variable = vars,
+  N_total = nrow(HMS24_sub),
+  N_valid = sapply(vars, function(v) sum(!is.na(HMS24_sub[[v]]))),
+  N_missing = sapply(vars, function(v) sum(is.na(HMS24_sub[[v]])))
+) %>%
+  mutate(Pct_missing = round(100 * N_missing / N_total, 1))
+
+kable(missing_table,
+      caption = "Missingness summary for selected variables (HMS24_sub: filtered on age and AI_3 only).")
+
+```
+## Counts
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+
+# 1) Count comparison (valid/missing age)
+age_counts <- tibble(
+  Dataset = c("HMS24 (raw)", "HMS24_sub (subset)"),
+  N_total = c(nrow(HMS24), nrow(HMS24_sub)),
+  N_age_valid = c(sum(!is.na(HMS24$age)), sum(!is.na(HMS24_sub$age))),
+  N_age_missing = c(sum(is.na(HMS24$age)), sum(is.na(HMS24_sub$age)))
+) %>%
+  mutate(Pct_age_missing = round(100 * N_age_missing / N_total, 1))
+
+kable(age_counts, caption = "Age availability in raw vs subset datasets")
+
+age_long <- bind_rows(
+  HMS24 %>% transmute(Dataset = "HMS24 (raw)", age = as.numeric(age)),
+  HMS24_sub %>% transmute(Dataset = "HMS24_sub (subset)", age = as.numeric(age))
+) %>%
+  filter(!is.na(age))
+
+ggplot(age_long, aes(x = age, fill = Dataset)) +
+  geom_histogram(binwidth = 1, position = "identity", alpha = 0.4) +
+  theme_minimal() +
+  labs(
+    title = "Age distribution: Raw vs Subset (overlay)",
+    x = "Age (years)",
+    y = "Count"
+  )
+
+# 4) Optional: numeric summaries
+age_summary <- age_long %>%
+  group_by(Dataset) %>%
+  summarise(
+    n = n(),
+    mean = round(mean(age), 2),
+    sd = round(sd(age), 2),
+    median = round(median(age), 2),
+    IQR = round(IQR(age), 2),
+    min = min(age),
+    max = max(age),
+    .groups = "drop"
+  )
+
+kable(age_summary, caption = "Summary statistics of age: Raw vs Subset")
+
+```
+
+## Spearma
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# 1) Correlation matrix (Spearman)
+cor_mat <- HMS24_sub %>%
+  select(age, AI_3, flourish, deprawsc, anx_score) %>%
+  cor(use = "complete.obs", method = "spearman")
+
+# 2) Convert to long format for heatmap
+cor_long <- as.data.frame(cor_mat) %>%
+  tibble::rownames_to_column("Var1") %>%
+  pivot_longer(-Var1, names_to = "Var2", values_to = "rho")
+
+# 3) Heatmap
+ggplot(cor_long, aes(x = Var2, y = Var1, fill = rho)) +
+  geom_tile() +
+  geom_text(aes(label = sprintf("%.2f", rho)), size = 3) +
+  scale_fill_gradient2(limits = c(-1, 1), midpoint = 0) +
+  theme_minimal() +
+  labs(
+    title = "Spearman Correlation Heatmap",
+    x = NULL,
+    y = NULL,
+    fill = "rho"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+# Centers at 0, scales to 1 standard deviation
+```{r}
+
+library(cluster)    # For clustering algorithms
+library(factoextra) # For beautiful cluster visualization
+library(tidyverse)
+
+cluster_HMS24_sub <- HMS24_sub %>%
+  select(age, AI_3, anx_score, deprawsc, flourish) %>%
+  drop_na() %>%
+  scale()
+
+```
+
+# Flourish
+```{r}
+
+library(dplyr)
+library(factoextra)
+library(ggplot2)
+
+# 1) Build clustering matrix for age + AI_3 + flourish (complete cases only)
+cluster_vars_af <- HMS24_sub %>%
+  select(age, AI_3, flourish) %>%
+  drop_na() %>%
+  mutate(across(everything(), as.numeric)) %>%
+  scale()
+
+# 2) Elbow method (WSS) to choose number of clusters
+p_wss <- fviz_nbclust(cluster_vars_af, kmeans, method = "wss") +
+  labs(subtitle = "Elbow method (WSS) for k-means: age, AI_3, flourish")
+
+p_wss
+
+```
+
+## clustering
+```{r cluster_age_ai_flourish_all_outputs}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(knitr)
+library(tibble)
+
+# ----------------------------
+# 0) Prepare clustering data
+# ----------------------------
+cluster_df <- HMS24_sub %>%
+  select(age, AI_3, flourish) %>%
+  drop_na() %>%                          # complete cases for clustering
+  mutate(across(everything(), as.numeric))
+
+cluster_vars <- scale(cluster_df)        # standardized matrix for k-means
+
+# ----------------------------
+# 1) Silhouette table (given values)
+# ----------------------------
+sil_df <- tibble(
+  k = c(3, 4, 5),
+  avg_silhouette = c(0.2712184, 0.2984562, 0.2876494)
+) %>%
+  mutate(
+    avg_silhouette = round(avg_silhouette, 3),
+    Best = ifelse(avg_silhouette == max(avg_silhouette), "*", "")
+  )
+
+kable(sil_df, caption = "Average silhouette width by number of clusters (age, AI_3, flourish)")
+
+# Choose k (silhouette best = 4). Change to 5 if you prefer elbow.
+k_best <- 5
+
+# ----------------------------
+# 2) Run k-means
+# ----------------------------
+set.seed(123)
+km_res <- kmeans(cluster_vars, centers = k_best, nstart = 50)
+
+df_clustered <- cluster_df %>%
+  mutate(cluster_group = factor(km_res$cluster))
+
+# ----------------------------
+# 3) Cluster profiles table (raw means + n)
+# ----------------------------
+cluster_summary <- df_clustered %>%
+  group_by(cluster_group) %>%
+  summarise(
+    Avg_Age = round(mean(age), 2),
+    Avg_AI3 = round(mean(AI_3), 2),
+    Avg_Flourish = round(mean(flourish), 2),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Avg_Age)
+
+kable(cluster_summary, caption = "Cluster profiles (means) for age, AI_3, and flourish")
+
+# ----------------------------
+# 4) Cluster scatter plot (fviz_cluster)
+# ----------------------------
+km_res_labeled <- km_res
+km_res_labeled$cluster <- df_clustered$cluster_group
+
+fviz_cluster(
+  km_res_labeled,
+  data = cluster_vars,
+  geom = "point",
+  ellipse.type = "convex",
+  ggtheme = theme_minimal(),
+  main = "Cluster Analysis: Age, AI_3, and Flourish"
+)
+
+# ----------------------------
+# 5) Cluster profile heatmap (z-score colors + raw means)
+# ----------------------------
+cluster_profile_long <- df_clustered %>%
+  group_by(cluster_group) %>%
+  summarise(
+    Avg_Age = mean(age),
+    Avg_AI3 = mean(AI_3),
+    Avg_Flourish = mean(flourish),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Avg_Age) %>%
+  mutate(cluster_label = paste0("Cluster ", cluster_group, " (n=", Count, ")")) %>%
+  mutate(cluster_label = factor(cluster_label, levels = cluster_label)) %>%
+  pivot_longer(
+    cols = c(Avg_Age, Avg_AI3, Avg_Flourish),
+    names_to = "feature",
+    values_to = "value"
+  ) %>%
+  group_by(feature) %>%
+  mutate(
+    z = as.numeric(scale(value)),
+    value_show = round(value, 2),
+    z = round(z, 2)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    feature = recode(
+      feature,
+      Avg_Age = "Age",
+      Avg_AI3 = "AI use level (AI_3)",
+      Avg_Flourish = "Flourish"
+    )
+  )
+
+ggplot(cluster_profile_long, aes(x = feature, y = cluster_label, fill = z)) +
+  geom_tile(color = "white", linewidth = 0.6) +
+  geom_text(aes(label = value_show), size = 3.6) +
+  scale_fill_gradient2(midpoint = 0) +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Z-score",
+    title = "Cluster profiles (means by cluster)",
+    subtitle = "Sorted by average age; tile color shows standardized deviation; numbers are raw means"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank())
+
+```
+
+# Depression
+```{r}
+
+library(dplyr)
+library(factoextra)
+library(ggplot2)
+
+# 1) Build clustering matrix for age + AI_3 + deprawsc (complete cases only)
+cluster_vars_ad <- HMS24_sub %>%
+  select(age, AI_3, deprawsc) %>%
+  drop_na() %>%
+  mutate(across(everything(), as.numeric)) %>%
+  scale()
+
+# 2) Elbow method (WSS) to choose number of clusters
+p_wss_dep <- fviz_nbclust(cluster_vars_ad, kmeans, method = "wss") +
+  labs(subtitle = "Elbow method (WSS) for k-means: age, AI_3, deprawsc")
+
+p_wss_dep
+
+```
+
+## Clustering
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(knitr)
+library(tibble)
+
+# ----------------------------
+# 0) Prepare clustering data
+# ----------------------------
+cluster_df <- HMS24_sub %>%
+  select(age, AI_3, deprawsc) %>%
+  drop_na() %>%                          # complete cases for clustering
+  mutate(across(everything(), as.numeric))
+
+cluster_vars <- scale(cluster_df)        # standardized matrix for k-means
+
+# ----------------------------
+# 1) Silhouette table (replace with your deprawsc values)
+# ----------------------------
+sil_df <- tibble(
+  k = c(3, 4, 5),
+  avg_silhouette = c(NA_real_, NA_real_, NA_real_)  # <-- replace with your numbers
+) %>%
+  mutate(
+    avg_silhouette = round(avg_silhouette, 3),
+    Best = ifelse(avg_silhouette == max(avg_silhouette, na.rm = TRUE), "*", "")
+  )
+
+kable(sil_df, caption = "Average silhouette width by number of clusters (age, AI_3, deprawsc)")
+
+# Choose k (set based on elbow/silhouette)
+k_best <- 5   # change if needed
+
+# ----------------------------
+# 2) Run k-means
+# ----------------------------
+set.seed(123)
+km_res <- kmeans(cluster_vars, centers = k_best, nstart = 50)
+
+df_clustered <- cluster_df %>%
+  mutate(cluster_group = factor(km_res$cluster))
+
+# ----------------------------
+# 3) Cluster profiles table (raw means + n)
+# ----------------------------
+cluster_summary <- df_clustered %>%
+  group_by(cluster_group) %>%
+  summarise(
+    Avg_Age = round(mean(age), 2),
+    Avg_AI3 = round(mean(AI_3), 2),
+    Avg_Deprawsc = round(mean(deprawsc), 2),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Avg_Age)
+
+kable(cluster_summary, caption = "Cluster profiles (means) for age, AI_3, and deprawsc")
+
+# ----------------------------
+# 4) Cluster scatter plot (fviz_cluster)
+# ----------------------------
+km_res_labeled <- km_res
+km_res_labeled$cluster <- df_clustered$cluster_group
+
+fviz_cluster(
+  km_res_labeled,
+  data = cluster_vars,
+  geom = "point",
+  ellipse.type = "convex",
+  ggtheme = theme_minimal(),
+  main = "Cluster Analysis: Age, AI_3, and deprawsc"
+)
+
+# ----------------------------
+# 5) Cluster profile heatmap (z-score colors + raw means)
+# ----------------------------
+cluster_profile_long <- df_clustered %>%
+  group_by(cluster_group) %>%
+  summarise(
+    Avg_Age = mean(age),
+    Avg_AI3 = mean(AI_3),
+    Avg_Deprawsc = mean(deprawsc),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Avg_Age) %>%
+  mutate(cluster_label = paste0("Cluster ", cluster_group, " (n=", Count, ")")) %>%
+  mutate(cluster_label = factor(cluster_label, levels = cluster_label)) %>%
+  pivot_longer(
+    cols = c(Avg_Age, Avg_AI3, Avg_Deprawsc),
+    names_to = "feature",
+    values_to = "value"
+  ) %>%
+  group_by(feature) %>%
+  mutate(
+    z = as.numeric(scale(value)),
+    value_show = round(value, 2),
+    z = round(z, 2)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    feature = recode(
+      feature,
+      Avg_Age = "Age",
+      Avg_AI3 = "AI use level (AI_3)",
+      Avg_Deprawsc = "PHQ-9 total (deprawsc)"
+    )
+  )
+
+ggplot(cluster_profile_long, aes(x = feature, y = cluster_label, fill = z)) +
+  geom_tile(color = "white", linewidth = 0.6) +
+  geom_text(aes(label = value_show), size = 3.6) +
+  scale_fill_gradient2(midpoint = 0) +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Z-score",
+    title = "Cluster profiles (means by cluster)",
+    subtitle = "Sorted by average age; tile color shows standardized deviation; numbers are raw means"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid = element_blank())
+
+```
+
+
