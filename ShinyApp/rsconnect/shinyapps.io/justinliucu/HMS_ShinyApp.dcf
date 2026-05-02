@@ -1,0 +1,12 @@
+name: HMS_ShinyApp
+title: HMS_ShinyApp
+username: justinliucu
+account: justinliucu
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17278964
+bundleId: 11938597
+url: https://justinliucu.shinyapps.io/HMS_ShinyApp/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

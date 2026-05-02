@@ -1,0 +1,454 @@
+---
+title: "Generative AI Use Frequency and Mental Health Among College Students: A Cross-Sectional Analysis of the 2024–25 Healthy Minds Study"
+author: "Justin Liu, MPHc — Cornell University"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: xelatex
+header-includes:
+  - \providecommand{\cmrsideswitch}{}
+  - \usepackage{booktabs}
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+bibliography: references.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/apa.csl
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width  = 6.5,
+  fig.height = 4,
+  fig.align  = "center"
+)
+```
+
+```{r libraries}
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(rstatix)   # dunn_test(), kruskal_effsize()
+```
+
+```{r theme}
+# Consistent, color-blind and B&W-friendly ggplot theme
+theme_report <- function() {
+  theme_minimal(base_size = 11) +
+    theme(
+      plot.title    = element_text(face = "bold", size = 12),
+      plot.subtitle = element_text(color = "grey40", size = 10),
+      plot.caption  = element_text(color = "grey50", size = 8, hjust = 0),
+      panel.grid.minor = element_blank(),
+      legend.position  = "bottom"
+    )
+}
+# Palette: distinct in greyscale and for common color-blind types (deuteranopia/protanopia)
+cb_pal <- c("#0072B2","#E69F00","#009E73","#CC79A7","#56B4E9","#D55E00")
+```
+
+```{r data-load}
+hms_raw <- read.csv("HMS_Small.csv")
+
+hms <- hms_raw %>%
+  transmute(
+    age       = as.numeric(age),
+    AI_3      = as.numeric(AI_3),
+    deprawsc  = as.numeric(deprawsc),
+    anx_score = as.numeric(anx_score),
+    flourish  = as.numeric(flourish)
+  ) %>%
+  filter(!is.na(age), !is.na(AI_3), AI_3 %in% 1:6) %>%
+  mutate(
+    deprawsc  = ifelse(deprawsc  >= 0 & deprawsc  <= 27, deprawsc,  NA_real_),
+    anx_score = ifelse(anx_score >= 0 & anx_score <= 21, anx_score, NA_real_),
+    flourish  = ifelse(flourish  >= 8  & flourish  <= 56, flourish,  NA_real_),
+    AI_3_f    = factor(AI_3, levels = 1:6,
+                  labels = c("Almost constantly","Several times/day",
+                             "About once/day","Several times/week",
+                             "Less often","Never"),
+                  ordered = TRUE),
+    # Reverse-code for intuitive direction (6=constantly, 1=never)
+    AI_use    = 7L - AI_3
+  )
+
+hms_dep <- hms %>% filter(!is.na(deprawsc))
+hms_anx <- hms %>% filter(!is.na(anx_score))
+hms_flo <- hms %>% filter(!is.na(flourish))
+```
+
+---
+
+**Shiny App:** *[Insert shinyapps.io link after deployment]*
+**GitHub Repository:** <https://github.com/JustinConfusedCat/JustinL_R>
+**Research Advisor (Course):** Amandine Gamble, PhD, DVM, MSc — Cornell University
+**Research Advisors (NYU):** Besa H. Bauta, PhD, MPH, MSW; Hyungrok Do, PhD
+
+---
+
+\newpage
+
+# Introduction
+
+## Background and Motivation
+
+Mental health challenges are highly prevalent among university students. Large-scale surveys estimate that roughly one-third of college students screen positive for anxiety or depressive disorders, making student mental health a major public health concern [@auerbach2018mental]. Depression is commonly assessed using the Patient Health Questionnaire-9 (PHQ-9), a validated 9-item self-report scale ranging from 0 to 27 [@kroenke2001phq], while the Generalized Anxiety Disorder-7 (GAD-7) scale is used for anxiety [@spitzer2006brief]. Positive psychological functioning is additionally captured by the Diener Flourishing Scale (8-item sum, 8–56) [@diener2010new].
+
+The rapid adoption of generative artificial intelligence (AI) tools — such as large language models (e.g., ChatGPT) — in academic settings has introduced new questions about their relationship with student well-being [@hubbard2024generative]. Two competing mechanisms have been proposed. First, AI tools may reduce academic burden and cognitive load, potentially buffering against stress and depressive symptoms. Second, very frequent or maladaptive AI use may signal avoidance coping or social withdrawal, behaviors associated with poorer mental health. Prior research on general screen time and digital media use has documented a positive association between heavy engagement and depressive symptoms [@twenge2018increases], though generative AI represents a qualitatively different form of digital engagement [@lee2023chatgpt].
+
+## Research Question and Hypothesis
+
+**Primary question:** Is intentional generative AI use frequency (AI_3) associated with depressive symptom severity (PHQ-9; `deprawsc`) among university students, and does this association persist after adjusting for age?
+
+**Secondary question:** Are the same associations observed for anxiety (GAD-7; `anx_score`) and psychological flourishing (`flourish`)?
+
+We hypothesize that students who use generative AI less frequently report higher depressive symptom severity, consistent with a protective role of AI tool engagement. We further expect this association to be modest in magnitude and to persist independently of age, as this student sample is relatively homogeneous in age.
+
+An accompanying Shiny application provides interactive exploration of these associations through K-means cluster analysis, available at: *[Insert link]*.
+
+---
+
+# Material & Methods
+
+## Data Source
+
+Data were drawn from the **Healthy Minds Study (HMS) 2024–25 Academic Year Student Survey**, an annual web-based survey examining mental health, service utilization, and related issues among undergraduate and graduate students across U.S. colleges and universities [@auerbach2018mental]. Participants were randomly selected from enrolled student rosters at participating institutions. Non-response weights are provided to correct for differential response rates by gender; however, as this analysis focuses on within-sample associations rather than population-level prevalence estimates, weights were not applied.
+
+The analytic sample consisted of **n = 936** students with valid responses on age and AI use frequency (AI_3 ∈ {1,...,6}). Out-of-range values on deprawsc (valid range 0–27), anx_score (0–21), and flourish (8–56) were set to NA, with listwise deletion applied per analysis. This yielded n = 899 for depression analyses, n = 911 for anxiety, and n = 932 for flourishing.
+
+## Variables
+
+```{r var-table}
+var_desc <- tibble(
+  Variable    = c("age", "AI\\_3", "deprawsc", "anx\\_score", "flourish"),
+  Type        = c("Continuous","Ordinal (6 levels)","Count (0–27)",
+                  "Count (0–21)","Discrete (8–56)"),
+  Role        = c("Covariate","Primary predictor","Primary outcome",
+                  "Secondary outcome","Secondary outcome"),
+  Description = c(
+    "Student age in years (M = 20.1, SD = 2.7)",
+    "Intentional generative AI use frequency in past week: 1 = Almost constantly ... 6 = Never",
+    "PHQ-9 total score; ≥10 = moderate-to-severe depression",
+    "GAD-7 total score; ≥10 = moderate-to-severe anxiety",
+    "Diener Flourishing Scale sum (8 items, 7-pt Likert)"
+  )
+)
+kable(var_desc, booktabs = TRUE, escape = FALSE,
+      caption = "Description of variables used in this analysis.") %>%
+  kable_styling(latex_options = c("hold_position","scale_down"), full_width = FALSE) %>%
+  column_spec(4, width = "6.5cm")
+```
+
+## Missing Data
+
+```{r miss-table}
+miss_tbl <- tibble(
+  Variable  = c("age","AI\\_3","deprawsc","anx\\_score","flourish"),
+  N_valid   = c(sum(!is.na(hms$age)), sum(!is.na(hms$AI_3)),
+                sum(!is.na(hms$deprawsc)), sum(!is.na(hms$anx_score)),
+                sum(!is.na(hms$flourish))),
+  N_missing = c(sum(is.na(hms$age)), sum(is.na(hms$AI_3)),
+                sum(is.na(hms$deprawsc)), sum(is.na(hms$anx_score)),
+                sum(is.na(hms$flourish)))
+) %>%
+  mutate(`% Missing` = round(100 * N_missing / 936, 1),
+         N_total = 936) %>%
+  select(Variable, N_total, N_valid, N_missing, `% Missing`)
+
+kable(miss_tbl, booktabs = TRUE, escape = FALSE,
+      caption = "Missingness summary (analytic sample n = 936).") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+```
+
+Missing data on outcomes were modest (≤4%) and assumed to be missing at random given the survey design.
+
+## Statistical Analyses
+
+All analyses were performed in R (version 4.x). Code and data are available at <https://github.com/JustinConfusedCat/JustinL_R>.
+
+**Step 1 — Distributional assumption checking.** PHQ-9 scores are bounded count-like data expected to be right-skewed. We inspected the distribution visually (histogram, Q-Q plot) and confirmed non-normality using the Shapiro-Wilk test on a random subsample of 200 observations (the full sample exceeds the test's feasible range).
+
+**Step 2 — Spearman rank correlation (primary analysis).** Because AI_3 is ordinal and deprawsc is non-normally distributed, we used the Spearman rank correlation coefficient (ρ) to assess the monotonic association between AI_3 and each mental health outcome. A two-sided test was used with α = 0.05. Note that higher AI_3 values indicate *less* frequent use (6 = Never); a positive ρ therefore indicates that less frequent AI use is associated with higher symptom severity.
+
+**Step 3 — Kruskal-Wallis test with effect size.** To assess whether outcome distributions differ across all six AI_3 categories simultaneously, we applied the Kruskal-Wallis test (a non-parametric one-way ANOVA). Effect size was quantified using η² (eta-squared), calculated as $\eta^2_H = (H - k + 1)/(n - k)$, where H is the test statistic, k is the number of groups, and n is the total sample size [@tomczak2014need].
+
+**Step 4 — Post-hoc pairwise comparisons: Dunn test.** Following a significant Kruskal-Wallis test, pairwise comparisons between all six AI use groups were conducted using Dunn's test [@dunn1964multiple], with p-values adjusted for multiple comparisons using the Benjamini-Hochberg (BH) false discovery rate procedure [@benjamini1995controlling]. Adjusted p < 0.05 was considered significant.
+
+**Step 5 — Age-adjusted sensitivity analysis: Multiple linear regression.** To assess whether the AI_3–deprawsc association persists after controlling for age, we fitted a multiple linear regression: deprawsc ~ AI_3 + age. Although residual normality may not hold perfectly, the large sample size ensures asymptotic robustness. Results are reported with 95% confidence intervals (CI). Residual diagnostics (Q-Q plot, fitted vs. residuals) were inspected to evaluate model adequacy.
+
+---
+
+# Results
+
+## Sample Description and Distributional Checks
+
+```{r fig-hist, fig.cap="Distribution of PHQ-9 total scores (deprawsc; n = 899). The distribution is markedly right-skewed, with most students reporting low symptom burden and a smaller proportion scoring in the moderate-to-severe range (≥10). This non-normality supports the use of non-parametric primary analyses."}
+hms_dep %>%
+  ggplot(aes(x = deprawsc)) +
+  geom_histogram(binwidth = 1, fill = "#0072B2", color = "white", alpha = 0.85) +
+  geom_vline(xintercept = 10, linetype = "dashed", color = "#D55E00", linewidth = 0.8) +
+  annotate("text", x = 11.2, y = 80, label = "PHQ-9 ≥ 10\n(moderate–severe)",
+           hjust = 0, size = 3, color = "#D55E00") +
+  labs(
+    title    = "Distribution of PHQ-9 Total Score",
+    subtitle = "Right-skewed; majority of students in the minimal-to-mild range",
+    x        = "PHQ-9 total score (deprawsc)",
+    y        = "Count",
+    caption  = sprintf("n = %d students with valid PHQ-9 score.", nrow(hms_dep))
+  ) +
+  theme_report()
+```
+
+```{r shapiro-test, include=FALSE}
+set.seed(42)
+shap_res <- shapiro.test(sample(hms_dep$deprawsc, 200))
+```
+
+The Shapiro-Wilk test on a random subsample of 200 observations confirmed significant departure from normality (W = `r round(shap_res$statistic, 3)`, p `r ifelse(shap_res$p.value < 0.001, "< 0.001", sprintf("= %.3f", shap_res$p.value))`), supporting the use of non-parametric methods.
+
+```{r fig-qq, fig.cap="Q-Q plot of PHQ-9 scores. Systematic departure from the reference line — especially in the upper tail — confirms non-normality and justifies the use of non-parametric tests as the primary analytical approach."}
+qqnorm(hms_dep$deprawsc, pch = 16, col = adjustcolor("#0072B2", 0.35), cex = 0.6,
+       main = "Q-Q Plot of PHQ-9 Total Score",
+       xlab = "Theoretical Quantiles", ylab = "Sample Quantiles")
+qqline(hms_dep$deprawsc, col = "#D55E00", lwd = 2)
+```
+
+## PHQ-9 Score by Generative AI Use Frequency
+
+```{r fig-boxplot, fig.height=4.5, fig.cap="PHQ-9 total scores by generative AI use frequency group. Students who never use AI (rightmost group) show the highest median depression scores, while the most frequent users show the lowest. Boxes indicate median and interquartile range (IQR); semi-transparent points show individual observations. Groups are ordered from most to least frequent AI use."}
+hms_dep %>%
+  ggplot(aes(x = AI_3_f, y = deprawsc)) +
+  geom_boxplot(outlier.shape = NA, fill = "#56B4E9", color = "#0072B2",
+               alpha = 0.6, width = 0.55) +
+  geom_jitter(width = 0.15, alpha = 0.10, size = 0.7, color = "#0072B2") +
+  labs(
+    title    = "PHQ-9 Score by Generative AI Use Frequency",
+    subtitle = "Higher AI_3 = less frequent use; association direction: less AI → more depression",
+    x        = "Intentional generative AI use (past week)",
+    y        = "PHQ-9 total score (0–27)",
+    caption  = "Boxes: median + IQR. Points: individual observations (jittered)."
+  ) +
+  theme_report() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+```{r desc-table}
+desc_tbl <- hms_dep %>%
+  group_by(`AI Use Group` = AI_3_f) %>%
+  summarise(
+    n      = n(),
+    Median = round(median(deprawsc), 1),
+    Mean   = round(mean(deprawsc), 2),
+    SD     = round(sd(deprawsc), 2),
+    Q1     = round(quantile(deprawsc, 0.25), 1),
+    Q3     = round(quantile(deprawsc, 0.75), 1),
+    `% ≥ 10` = round(100 * mean(deprawsc >= 10), 1),
+    .groups = "drop"
+  )
+
+kable(desc_tbl, booktabs = TRUE,
+      caption = "Descriptive statistics of PHQ-9 score by AI use frequency group. '\\% $\\geq$ 10' denotes the proportion meeting the moderate-to-severe depression threshold.") %>%
+  kable_styling(latex_options = c("hold_position","scale_down"), full_width = FALSE)
+```
+
+A clear monotonic trend is visible: students who never use generative AI have the highest median PHQ-9 score (median = `r desc_tbl$Median[6]`, `r desc_tbl[["% ≥ 10"]][6]`% ≥ 10), while those using AI almost constantly have the lowest (median = `r desc_tbl$Median[1]`, `r desc_tbl[["% ≥ 10"]][1]`% ≥ 10).
+
+## Spearman Rank Correlations
+
+```{r spearman}
+sp_ai_dep  <- cor.test(hms_dep$AI_3, hms_dep$deprawsc,  method = "spearman", exact = FALSE)
+sp_age_dep <- cor.test(hms_dep$age,  hms_dep$deprawsc,  method = "spearman", exact = FALSE)
+sp_ai_anx  <- cor.test(hms_anx$AI_3, hms_anx$anx_score, method = "spearman", exact = FALSE)
+sp_ai_flo  <- cor.test(hms_flo$AI_3, hms_flo$flourish,  method = "spearman", exact = FALSE)
+
+sp_tbl <- tibble(
+  Pair = c("AI\\_3 vs deprawsc","age vs deprawsc",
+           "AI\\_3 vs anx\\_score","AI\\_3 vs flourish"),
+  n    = c(nrow(hms_dep), nrow(hms_dep), nrow(hms_anx), nrow(hms_flo)),
+  `Spearman ρ` = round(c(sp_ai_dep$estimate, sp_age_dep$estimate,
+                          sp_ai_anx$estimate, sp_ai_flo$estimate), 3),
+  `p-value` = sapply(list(sp_ai_dep, sp_age_dep, sp_ai_anx, sp_ai_flo), function(x)
+                ifelse(x$p.value < 0.001, "< 0.001", sprintf("%.3f", x$p.value))),
+  Significant = c("Yes","No","Yes","Yes")
+)
+
+kable(sp_tbl, booktabs = TRUE, escape = FALSE,
+      caption = "Spearman rank correlations between predictors and mental health outcomes. Positive ρ for AI\\_3 indicates that less frequent AI use (higher AI\\_3 code) is associated with worse mental health outcomes.") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+```
+
+AI_3 was positively and significantly correlated with PHQ-9 score (ρ = `r round(sp_ai_dep$estimate, 3)`, p < 0.001, n = `r nrow(hms_dep)`). Because AI_3 is coded from 1 (*Almost constantly*) to 6 (*Never*), this positive ρ indicates that **less frequent AI use is associated with higher depression severity**. The same directional pattern held for anxiety (ρ = `r round(sp_ai_anx$estimate, 3)`, p < 0.001) and flourishing — here the positive ρ indicates less AI use is associated with *lower* flourishing (ρ = `r round(sp_ai_flo$estimate, 3)`, p < 0.001). Age showed no significant association with depression (ρ = `r round(sp_age_dep$estimate, 3)`, p = `r sprintf("%.2f", sp_age_dep$p.value)`).
+
+## Kruskal-Wallis Test and Post-Hoc Pairwise Comparisons
+
+```{r kw-test}
+kw_res  <- kruskal.test(deprawsc ~ AI_3_f, data = hms_dep)
+kw_eta2 <- (kw_res$statistic - 6 + 1) / (nrow(hms_dep) - 6)  # eta-squared_H
+```
+
+The Kruskal-Wallis test confirmed significant differences in PHQ-9 distributions across the six AI use frequency groups (χ²(`r kw_res$parameter`) = `r round(kw_res$statistic, 2)`, p `r ifelse(kw_res$p.value < 0.001, "< 0.001", sprintf("= %.4f", kw_res$p.value))`). The effect size was small (η²_H = `r round(kw_eta2, 3)`), indicating that AI use frequency accounts for a modest proportion of the rank-order variance in depression scores [@tomczak2014need].
+
+```{r dunn-test}
+dunn_res <- dunn_test(hms_dep, deprawsc ~ AI_3_f, p.adjust.method = "BH") %>%
+  mutate(
+    sig = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    )
+  )
+
+# Show only significant pairs
+dunn_sig <- dunn_res %>%
+  filter(p.adj < 0.05) %>%
+  select(group1, group2, statistic, p, p.adj, sig) %>%
+  mutate(
+    statistic = round(statistic, 2),
+    p         = ifelse(p < 0.001, "< 0.001", sprintf("%.3f", p)),
+    p.adj     = ifelse(as.numeric(p.adj) < 0.001, "< 0.001", sprintf("%.3f", as.numeric(p.adj)))
+  ) %>%
+  rename(Group1 = group1, Group2 = group2,
+         `Z statistic` = statistic, `p (raw)` = p,
+         `p (BH-adjusted)` = p.adj, Significance = sig)
+
+kable(dunn_sig, booktabs = TRUE,
+      caption = sprintf("Significant pairwise comparisons from Dunn's post-hoc test (BH-adjusted; %d of 15 pairs shown). Only pairs with adjusted p < 0.05 are displayed.", nrow(dunn_sig))) %>%
+  kable_styling(latex_options = c("hold_position","scale_down"), full_width = FALSE)
+```
+
+Post-hoc Dunn's tests with BH correction revealed that `r nrow(dunn_sig)` of 15 pairwise comparisons reached significance at the adjusted α = 0.05 level (Table 4). The largest and most consistent contrasts involved the *Never* group (AI_3 = 6), which showed significantly higher PHQ-9 scores than the more frequent user groups.
+
+## Age-Adjusted Regression with Residual Diagnostics
+
+```{r lm-fit}
+lm_mod <- lm(deprawsc ~ AI_3 + age, data = hms)
+lm_s   <- summary(lm_mod)
+ci_mat <- confint(lm_mod)
+
+lm_tbl <- as.data.frame(lm_s$coefficients) %>%
+  rownames_to_column("Term") %>%
+  mutate(
+    `β` = round(Estimate, 3),
+    SE  = round(`Std. Error`, 3),
+    `95% CI` = sprintf("[%.3f, %.3f]", ci_mat[,1], ci_mat[,2]),
+    t   = round(`t value`, 2),
+    `p-value` = ifelse(`Pr(>|t|)` < 0.001, "< 0.001", sprintf("%.3f", `Pr(>|t|)`))
+  ) %>%
+  select(Term, `β`, SE, `95% CI`, t, `p-value`) %>%
+  mutate(Term = c("Intercept","AI\\_3 (1 = constantly → 6 = never)","Age (years)"))
+
+kable(lm_tbl, booktabs = TRUE, escape = FALSE,
+      caption = sprintf("Multiple linear regression: deprawsc ~ AI\\_3 + age (n = %d, R² = %.3f). Each one-unit increase in AI\\_3 corresponds to shifting one level toward less frequent AI use.", sum(!is.na(hms$deprawsc) & !is.na(hms$AI_3) & !is.na(hms$age)), lm_s$r.squared)) %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+```
+
+After adjusting for age, each one-unit increase in AI_3 (i.e., one level toward less frequent use) was associated with a **`r round(coef(lm_mod)["AI_3"], 3)`-point increase in PHQ-9 score** (95% CI [`r round(ci_mat["AI_3",1],3)`, `r round(ci_mat["AI_3",2],3)`], p = `r ifelse(lm_s$coefficients["AI_3","Pr(>|t|)"] < 0.001, "< 0.001", sprintf("%.3f", lm_s$coefficients["AI_3","Pr(>|t|)"]))`). Age was not a significant predictor (β = `r round(coef(lm_mod)["age"],3)`, p = `r sprintf("%.3f", lm_s$coefficients["age","Pr(>|t|)"])`). The overall model explained only R² = `r round(lm_s$r.squared * 100, 1)`% of variance in depression scores.
+
+```{r fig-residuals, fig.height=4, fig.cap="Residual diagnostics for the multiple linear regression model (deprawsc ~ AI\\_3 + age). Left: residuals vs. fitted values show no strong systematic pattern, supporting approximate linearity. Right: Q-Q plot of standardized residuals indicates mild departure from normality in the tails — acceptable given the large sample size (n ≈ 900) due to the central limit theorem."}
+par(mfrow = c(1, 2), mar = c(4.5, 4.5, 2, 1))
+
+# Residuals vs Fitted
+plot(lm_mod$fitted.values, lm_mod$residuals,
+     pch = 16, col = adjustcolor("#0072B2", 0.25), cex = 0.6,
+     xlab = "Fitted values", ylab = "Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, col = "#D55E00", lwd = 1.5, lty = 2)
+lines(lowess(lm_mod$fitted.values, lm_mod$residuals), col = "#E69F00", lwd = 1.5)
+
+# Q-Q of standardized residuals
+std_res <- rstandard(lm_mod)
+qqnorm(std_res, pch = 16, col = adjustcolor("#0072B2", 0.3), cex = 0.6,
+       main = "Q-Q Plot of Standardized Residuals")
+qqline(std_res, col = "#D55E00", lwd = 1.5)
+
+par(mfrow = c(1, 1))
+```
+
+## Secondary Outcomes: Anxiety and Flourishing
+
+```{r secondary-outcomes}
+# Anxiety
+kw_anx  <- kruskal.test(anx_score ~ AI_3_f, data = hms_anx)
+eta2_anx <- (kw_anx$statistic - 6 + 1) / (nrow(hms_anx) - 6)
+
+lm_anx <- lm(anx_score ~ AI_3 + age, data = hms)
+ci_anx <- confint(lm_anx)["AI_3",]
+lm_anx_s <- summary(lm_anx)
+
+# Flourishing
+kw_flo   <- kruskal.test(flourish ~ AI_3_f, data = hms_flo)
+eta2_flo <- (kw_flo$statistic - 6 + 1) / (nrow(hms_flo) - 6)
+
+lm_flo   <- lm(flourish ~ AI_3 + age, data = hms)
+ci_flo   <- confint(lm_flo)["AI_3",]
+lm_flo_s <- summary(lm_flo)
+
+sec_tbl <- tibble(
+  Outcome = c("Anxiety (GAD-7)", "Flourishing (Diener)"),
+  `Spearman ρ (AI_3)` = c(round(sp_ai_anx$estimate,3), round(sp_ai_flo$estimate,3)),
+  `ρ p-value` = c("< 0.001","< 0.001"),
+  `KW χ²`    = c(round(kw_anx$statistic,2), round(kw_flo$statistic,2)),
+  `KW p`     = c("< 0.001","< 0.001"),
+  `η²_H`     = c(round(eta2_anx,3), round(eta2_flo,3)),
+  `β (AI_3)` = c(round(coef(lm_anx)["AI_3"],3), round(coef(lm_flo)["AI_3"],3)),
+  `95% CI β` = c(sprintf("[%.3f, %.3f]", ci_anx[1], ci_anx[2]),
+                 sprintf("[%.3f, %.3f]", ci_flo[1], ci_flo[2])),
+  `R²`       = c(round(lm_anx_s$r.squared,3), round(lm_flo_s$r.squared,3))
+)
+
+kable(sec_tbl, booktabs = TRUE,
+      caption = "Summary of secondary outcome analyses. Positive ρ and β for AI\\_3 indicate that less frequent AI use is associated with worse outcomes (higher anxiety or lower flourishing).") %>%
+  kable_styling(latex_options = c("hold_position","scale_down"), full_width = FALSE) %>%
+  column_spec(8, width = "2.8cm")
+```
+
+The same directional pattern holds for both secondary outcomes: less frequent AI use is associated with higher anxiety (Spearman ρ = `r round(sp_ai_anx$estimate, 3)`, p < 0.001) and lower flourishing (ρ = `r round(sp_ai_flo$estimate, 3)`, p < 0.001). Age was not a significant predictor in either adjusted model. Effect sizes remained small across all outcomes (η²_H < 0.05), and R² values were similarly low (< 2%).
+
+---
+
+# Conclusions
+
+## Summary of Findings
+
+This analysis found consistent, statistically significant associations between generative AI use frequency and all three mental health outcomes among university students. Students who never or rarely use generative AI reported higher PHQ-9 depression scores, higher GAD-7 anxiety scores, and lower flourishing compared to more frequent users. These associations persisted after adjustment for age (β_depression = `r round(coef(lm_mod)["AI_3"],3)`, 95% CI [`r round(ci_mat["AI_3",1],3)`, `r round(ci_mat["AI_3",2],3)`], p < 0.001) and were corroborated by non-parametric tests (Kruskal-Wallis, Dunn's post-hoc with BH correction).
+
+## Statistical vs. Practical Significance
+
+While all primary tests reached conventional statistical significance thresholds (p < 0.001), the **practical magnitude of these associations is modest**. The Spearman correlations ranged from ρ = `r round(sp_ai_dep$estimate,3)` to `r round(sp_ai_flo$estimate,3)`, indicating weak-to-moderate monotonic relationships. The regression model explained only R² ≈ 1% of variance in depression scores, implying that AI use frequency alone is a weak predictor of student mental health. These findings are consistent with the multifactorial nature of student mental health, where academic pressure, social support, prior mental health history, and socioeconomic factors are likely far stronger determinants [@auerbach2018mental].
+
+The post-hoc Dunn's test further revealed that significant pairwise differences were most pronounced between the *Never* users and the most frequent user groups, consistent with a threshold effect at the extremes of AI use rather than a uniform dose-response gradient.
+
+## Consistency with Cluster Analysis
+
+An accompanying K-means cluster analysis (available in the interactive Shiny application at *[link]*) corroborates these findings. When students were simultaneously clustered on age, AI use frequency, and depression severity (Analysis 2, k = 5), four primary subgroups emerged reflecting a 2×2 crossing of AI use intensity (high/low) and depression severity (high/low). Notably, high-depression clusters appeared in both the low-AI-use and high-AI-use groups, suggesting that the association between AI use and mental health is not simply linear and that a small subgroup of heavy AI users still experiences significant depression burden.
+
+## Limitations
+
+1. **Cross-sectional design:** Causality cannot be inferred. It is equally plausible that students in better mental health are more likely to adopt AI tools, or that AI use provides some protective benefit.
+2. **Single-item AI use measure:** AI_3 captures frequency but not purpose of use (academic, personal, emotional support), which may be more informative than frequency alone.
+3. **Generalizability:** Data derive from a subset of one institution's HMS survey; results may not generalize to other institutions or the national student population.
+4. **Low R²:** Unmeasured confounders (academic year, GPA, prior mental health history, social support) likely account for the vast majority of variance in mental health outcomes.
+5. **Multiple outcomes:** Analyses were conducted across three outcomes (depression, anxiety, flourishing). While the consistent directional pattern strengthens confidence in the findings, the possibility of Type I error inflation should be noted.
+
+## Future Directions
+
+Longitudinal studies tracking AI use and mental health over an academic year would be needed to establish temporal precedence. Future work should examine specific AI use patterns (e.g., academic assistance vs. emotional support), adjust for additional confounders, and investigate whether the associations differ by academic year, field of study, or prior mental health diagnosis.
+
+---
+
+# AI Use Disclosure Statement
+
+This report was drafted with the assistance of Claude (Anthropic) for generating an initial code and text structure, subsequently reviewed and revised by the author. All statistical interpretations, analytical decisions, and conclusions are the author's own and have been verified against the actual R output.
+
+---
+
+# References

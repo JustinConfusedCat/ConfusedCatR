@@ -1,0 +1,350 @@
+---
+title: "VTPEH 6270 - Check Point 06: Statistical Analyses"
+author: "Justin Liu"
+date: "`r Sys.Date()`"
+editor_options:
+  chunk_output_type: inline
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+    latex_engine: xelatex
+    
+header-includes:
+  - \providecommand{\cmrsideswitch}{}
+
+bibliography: references.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/apa.csl
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 7, fig.height = 4.5, fig.align = "center")
+```
+
+```{r libraries, include=FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(tibble)
+
+```
+
+# Introduction
+
+## Research Question
+
+In the 2024--25 student sample, is intentional weekly generative AI use frequency (AI_3) associated with depressive symptom severity (PHQ-9 total score; `deprawsc`) among university students, and does this association persist after adjusting for age?
+
+Specifically, we hypothesize that students who use generative AI less frequently (or never) report higher levels of depressive symptoms compared to more frequent users, and that this trend holds independently of age.
+
+## Scientific Plausibility and Context
+
+Mental health challenges are highly prevalent among university students, with studies estimating
+that roughly one-third of college students screen positive for anxiety or depressive disorders
+[@auerbach2018mental]. Depressive symptoms are typically measured using validated instruments
+such as the Patient Health Questionnaire-9 (PHQ-9), a widely-used 9-item self-report scale
+ranging from 0 to 27 [@kroenke2001phq]. Anxiety symptoms are similarly assessed using the
+Generalized Anxiety Disorder-7 scale (GAD-7) [@spitzer2006brief].
+
+The rapid adoption of generative artificial intelligence (AI) tools --- such as large language
+models --- in academic settings has raised important questions about their relationship with
+student well-being [@hubbard2024generative]. On one hand, frequent AI use could reflect
+engagement with productivity tools that reduce academic burden, potentially buffering against
+stress and depressive symptoms. On the other hand, very frequent AI dependence might signal
+avoidance coping behaviors associated with poorer mental health. Prior research on screen time
+and digital media use has shown a positive association between heavy media engagement and
+depressive symptoms [@twenge2018increases]; however, the specific relationship between
+generative AI use and mental health among students remains understudied [@lee2023chatgpt].
+
+Given the mixed theoretical predictions, we expect a modest but detectable association between
+AI use frequency and depressive symptom severity in this student cohort, with the direction of
+the effect remaining an empirical question.
+
+# Material & Methods
+
+## Data
+
+This analysis uses data from the Healthy Minds Study (HMS) 2024--2025 academic year survey, a nationally-representative web-based survey of university students in the United States. The HMS collects information on mental health, academic experiences, and health behaviors. For this analysis, data were subset to include students with valid responses on age and AI use frequency (AI_3 in range 1--6), yielding an analytic sample of n = 936 students. Out-of-range values for deprawsc (valid range: 0--27) and anx_score (valid range: 0--21) were set to NA without dropping the row.
+
+The five variables used in this analysis are described in Table 1.
+
+```{r data-load}
+# Load data (adjust path as needed)
+mywd <- "/Users/justinl/Desktop/Acadamic/Cornell/25-26 Spring/6270 R/Check Point #06"
+setwd(mywd)
+hms_raw <- read.csv("HMS_Small.csv")
+
+# Clean and subset
+hms <- hms_raw %>%
+  transmute(
+    age       = as.numeric(age),
+    AI_3      = as.numeric(AI_3),
+    deprawsc  = as.numeric(deprawsc),
+    anx_score = as.numeric(anx_score)
+  ) %>%
+  filter(!is.na(age), !is.na(AI_3), AI_3 %in% 1:6) %>%
+  mutate(
+    deprawsc  = ifelse(deprawsc  >= 0 & deprawsc  <= 27, deprawsc,  NA_real_),
+    anx_score = ifelse(anx_score >= 0 & anx_score <= 21, anx_score, NA_real_),
+    AI_3_label = factor(AI_3,
+      levels = 1:6,
+      labels = c("Almost constantly", "Several times/day", "About once/day",
+                 "Several times/week", "Less often", "Never"),
+      ordered = TRUE
+    )
+  )
+```
+
+```{r var-table, echo=FALSE}
+var_desc <- tibble(
+  `Variable` = c("age", "AI_3", "AI_3 (labels)", "deprawsc", "anx_score"),
+  `Type` = c("Continuous", "Ordinal categorical", "—",
+             "Discrete numeric", "Discrete numeric"),
+  `Description` = c(
+    "Student age in years",
+    "Intentional generative AI use frequency past week (1=Almost constantly ... 6=Never)",
+    "1=Almost constantly, 2=Several times/day, 3=About once/day, 4=Several times/week, 5=Less often, 6=Never",
+    "PHQ-9 total score (0--27); primary outcome",
+    "Anxiety symptom score (0--21); secondary outcome"
+  )
+)
+kable(var_desc, booktabs = TRUE,
+      caption = "Description of variables used in this analysis.") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE) %>%
+  column_spec(3, width = "7cm")
+```
+
+```{r missingness}
+# Missingness summary
+miss_tbl <- tibble(
+  Variable  = c("age", "AI_3", "deprawsc", "anx_score"),
+  N_total   = nrow(hms),
+  N_valid   = c(sum(!is.na(hms$age)), sum(!is.na(hms$AI_3)),
+                sum(!is.na(hms$deprawsc)), sum(!is.na(hms$anx_score))),
+  N_missing = c(sum(is.na(hms$age)), sum(is.na(hms$AI_3)),
+                sum(is.na(hms$deprawsc)), sum(is.na(hms$anx_score)))
+) %>%
+  mutate(Pct_missing = round(100 * N_missing / N_total, 1))
+
+kable(miss_tbl, booktabs = TRUE,
+      caption = "Missingness summary for the analytic sample (n = 936).") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+```
+
+## Statistical Analyses
+
+The primary predictor is AI_3 (ordinal, 6 levels from "Almost constantly" to "Never"). The primary outcome is deprawsc (PHQ-9, 0--27). Age is considered as a potential confounder.
+
+**Assumption checking.** PHQ-9 scores (deprawsc) are count-like data bounded between 0 and 27 and are expected to be right-skewed in a student population. Before choosing a statistical test, we assessed the distribution of deprawsc with a histogram and Q-Q plot. We expect that the normality assumption is unlikely to hold.
+
+**Primary analysis: Spearman rank correlation.** Because AI_3 is an ordinal variable (treated as numeric ordinal, 1--6) and deprawsc is non-normally distributed, we used the Spearman rank correlation coefficient (p) to assess the monotonic association between AI_3 and deprawsc. A two-sided test was used with α = 0.05. Spearman correlations between age and each mental health outcome were computed as well.
+
+**Supplementary analysis: Kruskal-Wallis test.** To assess whether deprawsc distributions differ significantly across all six AI_3 categories (without assuming a monotonic trend), we applied the Kruskal-Wallis test, a non-parametric alternative to one-way ANOVA.
+
+**Age adjustment: Multiple linear regression.** As a sensitivity analysis to assess whether the AI_3--deprawsc association holds after controlling for age, we fitted a multiple linear regression model: `deprawsc ~ AI_3 + age`. While the normality assumption on residuals may not be fully met, the large sample size (n ≈ 900) ensures asymptotic robustness via the central limit theorem. All analyses were performed in R (version 4.x).
+
+## Code
+
+All code and data used for this analysis are available in the GitHub repository:
+**[https://github.com/JustinConfusedCat/ConfusedCatR](https://github.com/JustinConfusedCat/ConfusedCatR)**
+
+# Results
+
+## Visualization
+
+### Distribution of Depressive Symptoms
+
+```{r fig-hist, fig.cap="Distribution of PHQ-9 total scores (deprawsc) in the analytic sample. The distribution is right-skewed, supporting the use of non-parametric statistical methods."}
+hms %>%
+  filter(!is.na(deprawsc)) %>%
+  ggplot(aes(x = deprawsc)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white", alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "Distribution of PHQ-9 Total Score (deprawsc)",
+    x = "PHQ-9 total score (deprawsc, 0--27)",
+    y = "Count",
+    caption = "n = 899 students with valid deprawsc."
+  )
+```
+
+```{r fig-qq, fig.cap="Q-Q plot of PHQ-9 scores. Departure from the diagonal indicates non-normality, particularly in the upper tail."}
+hms_dep <- hms %>% filter(!is.na(deprawsc))
+qqnorm(hms_dep$deprawsc, main = "Q-Q Plot of PHQ-9 Total Score (deprawsc)",
+       xlab = "Theoretical Quantiles", ylab = "Sample Quantiles")
+qqline(hms_dep$deprawsc, col = "firebrick", lwd = 2)
+```
+
+Both figures confirm that deprawsc is right-skewed and non-normal, validating the use of non-parametric tests (Spearman, Kruskal-Wallis) as the primary approach.
+
+### PHQ-9 Score by AI Use Frequency
+
+```{r fig-boxplot, fig.height=5, fig.cap="PHQ-9 total scores by generative AI use frequency group (AI\\_3). The 'Never' group shows the highest median score, while the 'Several times/day' group shows the lowest. Boxes show median and IQR; points are individual observations."}
+hms %>%
+  filter(!is.na(deprawsc)) %>%
+  ggplot(aes(x = AI_3_label, y = deprawsc)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6, fill = "lightblue") +
+  geom_jitter(width = 0.15, alpha = 0.12, size = 0.8, color = "steelblue4") +
+  theme_minimal() +
+  labs(
+    title = "PHQ-9 Total Score by Generative AI Use Frequency",
+    x = "Intentional generative AI use (past week)",
+    y = "PHQ-9 total score (deprawsc, 0--27)",
+    caption = "Boxes show median and IQR; points are individual observations."
+  ) +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+### Descriptive Statistics by AI Use Group
+
+```{r desc-table}
+desc_by_ai <- hms %>%
+  filter(!is.na(deprawsc)) %>%
+  group_by(`AI Use` = AI_3_label) %>%
+  summarise(
+    n          = n(),
+    Median     = round(median(deprawsc), 1),
+    Mean       = round(mean(deprawsc), 2),
+    SD         = round(sd(deprawsc), 2),
+    Q1         = round(quantile(deprawsc, 0.25), 1),
+    Q3         = round(quantile(deprawsc, 0.75), 1),
+    .groups = "drop"
+  )
+
+kable(desc_by_ai, booktabs = TRUE,
+      caption = "Descriptive statistics of PHQ-9 score (deprawsc) by AI use frequency group.") %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"), full_width = FALSE)
+```
+
+There is a clear trend: students who report never using AI have the highest median PHQ-9 score (median = 9), while the most moderate users (several times/day) have the lowest (median = 6).
+
+## Statistical Analyses
+
+### Assumption Check
+
+```{r normality-check, echo=TRUE}
+# Shapiro-Wilk on full deprawsc sample (n > 5000 not possible; test on a sample)
+set.seed(42)
+shap_sample <- sample(hms_dep$deprawsc, 200)
+shapiro_res <- shapiro.test(shap_sample)
+shapiro_res
+```
+
+The Shapiro-Wilk test on a random subsample of 200 observations confirms significant departure from normality (p < 0.05), supporting the use of non-parametric tests.
+
+### Primary Analysis: Spearman Rank Correlation
+
+```{r spearman-ai-dep}
+# Spearman: AI_3 vs deprawsc
+sp_ai_dep <- cor.test(hms_dep$AI_3, hms_dep$deprawsc, method = "spearman")
+sp_ai_dep
+```
+
+```{r spearman-age-dep}
+# Spearman: age vs deprawsc
+sp_age_dep <- cor.test(hms_dep$age, hms_dep$deprawsc, method = "spearman")
+sp_age_dep
+```
+
+```{r spearman-summary-table, echo=FALSE}
+library(dplyr)
+library(tibble)
+library(knitr)
+
+sp_tbl <- tibble(
+  Correlation = c("AI_3 vs deprawsc", "age vs deprawsc"),
+  n = c(nrow(hms_dep), nrow(hms_dep)),
+  `Spearman rho` = round(c(sp_ai_dep$estimate, sp_age_dep$estimate), 3),
+  `p-value` = c(
+    ifelse(sp_ai_dep$p.value < 0.001, "p < 0.001", sprintf("%.3f", sp_ai_dep$p.value)),
+    ifelse(sp_age_dep$p.value < 0.001, "p < 0.001", sprintf("%.3f", sp_age_dep$p.value))
+  ),
+  Interpretation = c(
+    "Significant positive association",
+    "Not statistically significant"
+  )
+)
+
+knitr::kable(sp_tbl, format = "latex", booktabs = TRUE,
+             caption = "Spearman rank correlations with PHQ-9 score (deprawsc).",
+             escape = TRUE)
+
+```
+
+**Interpretation:** There is a statistically significant positive Spearman correlation between AI_3 and deprawsc (p = 0.130, p < 0.001, n = 899). Since AI_3 is coded such that **higher values = less frequent use** (1 = "Almost constantly", 6 = "Never"), a positive p indicates that students who use AI **less frequently** tend to report **higher depressive symptom severity**. In contrast, age shows no significant association with deprawsc (p = 0.036, p = 0.31).
+
+### Supplementary Analysis: Kruskal-Wallis Test
+
+```{r kruskal-wallis}
+# Kruskal-Wallis: deprawsc across AI_3 groups
+kw_res <- kruskal.test(deprawsc ~ factor(AI_3), data = hms)
+kw_res
+```
+
+The Kruskal-Wallis test confirms that the distribution of PHQ-9 scores differs significantly across the six AI use frequency groups (χ² = `r round(kw_res$statistic, 2)`, df = `r kw_res$parameter`, p = `r format.pval(kw_res$p.value, digits = 3, eps = 0.001)`).
+
+### Age-Adjusted Analysis: Multiple Linear Regression
+
+```{r linear-regression}
+# Multiple linear regression: deprawsc ~ AI_3 + age
+lm_mod <- lm(deprawsc ~ AI_3 + age, data = hms)
+summary(lm_mod)
+```
+
+```{r lm-table, echo=FALSE}
+library(dplyr)
+library(tibble)
+library(knitr)
+library(kableExtra)
+
+lm_coef <- as.data.frame(summary(lm_mod)$coefficients) %>%
+  tibble::rownames_to_column("Term") %>%
+  mutate(
+    `Estimate (beta)` = round(Estimate, 3),
+    `Std. Error`      = round(`Std. Error`, 3),
+    `t value`         = round(`t value`, 3),
+    `p-value`         = ifelse(`Pr(>|t|)` < 0.001, "p < 0.001", sprintf("%.3f", `Pr(>|t|)`))
+  ) %>%
+  select(Term, `Estimate (beta)`, `Std. Error`, `t value`, `p-value`)
+
+kable(lm_coef, format = "latex", booktabs = TRUE, escape = TRUE,
+      caption = "Multiple linear regression: deprawsc ~ AI\\_3 + age.") %>%
+  kable_styling(latex_options = "hold_position", full_width = FALSE)
+
+```
+
+**Interpretation:** In the multiple linear regression model (R² = 0.010), each one-unit increase in AI_3 (i.e., shifting one level toward less frequent AI use) is associated with a 0.390-point increase in PHQ-9 score (β = 0.390, t = 3.00, p = 0.003), after adjusting for age. Age itself is not significantly associated with deprawsc (β = 0.024, t = 0.34, p = 0.74). The very low R² indicates that AI use frequency and age together explain only ~1% of the variance in depressive symptoms, suggesting that many other unmeasured factors are at play.
+
+### Secondary Outcome: Anxiety Score
+
+```{r spearman-anxiety}
+hms_anx <- hms %>% filter(!is.na(anx_score))
+sp_ai_anx  <- cor.test(hms_anx$AI_3, hms_anx$anx_score, method = "spearman")
+sp_age_anx <- cor.test(hms_anx$age,  hms_anx$anx_score, method = "spearman")
+cat("AI_3 vs anx_score: rho =", round(sp_ai_anx$estimate, 3),
+    ", p =", format.pval(sp_ai_anx$p.value, digits = 3, eps = 0.001), "\n")
+cat("age vs anx_score:  rho =", round(sp_age_anx$estimate, 3),
+    ", p =", format.pval(sp_age_anx$p.value, digits = 3, eps = 0.001), "\n")
+```
+
+The same positive association is observed between AI_3 and anxiety score (p = 0.118, p < 0.001, n = 911), confirming that the pattern holds across both mental health outcomes. Age shows no significant association with anxiety (p = 0.050, p = 0.13).
+
+# Conclusions
+
+This analysis found a statistically significant, albeit modest, positive association between AI use frequency and depressive symptom severity among university students (Spearman p = 0.130, p < 0.001; Kruskal-Wallis test, p < 0.001). Because AI_3 is coded from 1 ("Almost constantly") to 6 ("Never"), this positive correlation indicates that students who never or rarely use generative AI tend to report higher PHQ-9 scores than those who use it frequently. A similar pattern was observed for anxiety symptoms. These findings are consistent with the hypothesis that AI tool use may be associated with reduced academic stress, or alternatively, that students with poorer mental health engage less with AI technologies. However, the extremely low explained variance (R² ≈ 1%) underscores that AI use frequency alone is a weak predictor of depressive symptoms, and that many other personal, academic, and socioeconomic factors play a dominant role—consistent with prior literature on the multifactorial nature of student mental health [@auerbach2018mental; @twenge2018increases].
+
+Importantly, age was not significantly associated with depressive symptoms in this sample, likely because the student population is relatively homogeneous in age (mean ≈ 20 years, range 18--63). The cross-sectional design precludes causal conclusions: we cannot determine whether AI use protects against depression, or whether students in better mental health are simply more likely to adopt and use AI tools.
+
+Future work should consider longitudinal designs, adjustment for additional confounders (e.g., academic year, GPA, prior mental health history), and investigation of AI use types (academic, personal, creative) to better characterize this emerging relationship.
+
+# AI Use Disclosure Statement
+
+This document was drafted with the assistance of Claude (Anthropic) to generate a first draft of R code, written text, and report structure, which were then reviewed and adjusted by the author. The statistical interpretations and conclusions were verified by the author against the actual output.
+
+# References
